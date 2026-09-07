@@ -22,6 +22,7 @@ const state = {
   uploadedImageUrl: "",
   uploadInProgress: false,
   detailPortions: 1,
+  isRefreshing: false,
 };
 
 const refs = {};
@@ -51,8 +52,10 @@ document.addEventListener("DOMContentLoaded", () => {
   refs.uploadStatus = document.getElementById("uploadStatus");
   refs.recipeTags = document.getElementById("recipeTags");
   refs.deleteRecipeButton = document.getElementById("deleteRecipeButton");
+  refs.pullRefreshIndicator = document.getElementById("pullRefreshIndicator");
 
   bindEvents();
+  bindPullToRefresh();
   registerServiceWorker();
   renderIngredientRows();
   subscribeToRecipes();
@@ -97,6 +100,73 @@ function bindEvents() {
   });
 }
 
+function bindPullToRefresh() {
+  let startY = 0;
+  let pullDistance = 0;
+
+  window.addEventListener(
+    "touchstart",
+    (event) => {
+      if (window.scrollY > 0 || state.activeView === "form" || state.activeView === "detail") {
+        return;
+      }
+      startY = event.touches[0].clientY;
+      pullDistance = 0;
+    },
+    { passive: true }
+  );
+
+  window.addEventListener(
+    "touchmove",
+    (event) => {
+      if (window.scrollY > 0 || state.activeView === "form" || state.activeView === "detail" || state.isRefreshing) {
+        return;
+      }
+
+      const currentY = event.touches[0].clientY;
+      const delta = currentY - startY;
+
+      if (delta > 0 && delta < 140) {
+        pullDistance = delta;
+        refs.pullRefreshIndicator.classList.add("visible");
+        refs.pullRefreshIndicator.style.transform = `translate(-50%, ${Math.min(delta, 110)}px)`;
+      }
+    },
+    { passive: true }
+  );
+
+  window.addEventListener(
+    "touchend",
+    () => {
+      if (state.isRefreshing || state.activeView === "form" || state.activeView === "detail") {
+        refs.pullRefreshIndicator.classList.remove("visible");
+        refs.pullRefreshIndicator.style.transform = "translate(-50%, -120%)";
+        startY = 0;
+        pullDistance = 0;
+        return;
+      }
+
+      if (pullDistance > 70) {
+        state.isRefreshing = true;
+        refs.pullRefreshIndicator.textContent = "Aktualisiere...";
+        refs.pullRefreshIndicator.classList.add("refreshing");
+        refs.pullRefreshIndicator.style.transform = "translate(-50%, 18px)";
+
+        setTimeout(() => {
+          window.location.reload();
+        }, 500);
+      } else {
+        refs.pullRefreshIndicator.classList.remove("visible");
+        refs.pullRefreshIndicator.style.transform = "translate(-50%, -120%)";
+      }
+
+      startY = 0;
+      pullDistance = 0;
+    },
+    { passive: true }
+  );
+}
+
 function subscribeToRecipes() {
   const recipesQuery = query(collection(db, "recipes"), orderBy("createdAt", "desc"));
 
@@ -118,7 +188,11 @@ function subscribeToRecipes() {
     },
     (error) => {
       console.error("Firestore error:", error);
-      showToast("Fehler beim Laden der Rezepte. Bitte erneut versuchen.", "error");
+      const message =
+        error?.code === "permission-denied"
+          ? "Firestore-Zugriff verweigert. Bitte Sicherheitsregeln prüfen."
+          : "Fehler beim Laden der Rezepte. Bitte erneut versuchen.";
+      showToast(message, "error");
     }
   );
 }
@@ -304,10 +378,10 @@ function renderIngredientRows(rows = [{ name: "", amount: "", unit: "" }]) {
   refs.ingredientRows.innerHTML = rows
     .map(
       (ingredient, index) => `
-        <div class="ingredient-row grid grid-cols-[1.2fr_0.7fr_0.7fr_auto] gap-2 rounded-xl border border-slate-200 bg-slate-50 p-2">
-          <input data-field="name" data-index="${index}" value="${escapeAttribute(ingredient.name || "")}" placeholder="Zutat" class="rounded-lg border border-slate-200 bg-white px-2 py-2 text-sm outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-200" />
-          <input data-field="amount" data-index="${index}" type="number" min="0" step="0.25" value="${ingredient.amount ?? ""}" placeholder="Menge" class="rounded-lg border border-slate-200 bg-white px-2 py-2 text-sm outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-200" />
-          <input data-field="unit" data-index="${index}" value="${escapeAttribute(ingredient.unit || "")}" placeholder="Einheit" class="rounded-lg border border-slate-200 bg-white px-2 py-2 text-sm outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-200" />
+        <div class="ingredient-row grid grid-cols-[minmax(0,1.3fr)_minmax(0,0.7fr)_minmax(0,0.7fr)_auto] gap-2 rounded-xl border border-slate-200 bg-slate-50 p-2">
+          <input data-field="name" data-index="${index}" value="${escapeAttribute(ingredient.name || "")}" placeholder="Zutat" class="w-full min-w-0 rounded-lg border border-slate-200 bg-white px-2 py-2 text-sm outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-200" />
+          <input data-field="amount" data-index="${index}" type="number" min="0" step="0.25" value="${ingredient.amount ?? ""}" placeholder="Menge" class="w-full min-w-0 rounded-lg border border-slate-200 bg-white px-2 py-2 text-sm outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-200" />
+          <input data-field="unit" data-index="${index}" value="${escapeAttribute(ingredient.unit || "")}" placeholder="Einheit" class="w-full min-w-0 rounded-lg border border-slate-200 bg-white px-2 py-2 text-sm outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-200" />
           <button type="button" data-remove-index="${index}" class="rounded-lg border border-red-200 bg-red-50 px-2 text-sm font-medium text-red-600 hover:bg-red-100">×</button>
         </div>
       `
@@ -384,7 +458,11 @@ async function handleRecipeSubmit(event) {
     showView("home");
   } catch (error) {
     console.error("Save recipe error:", error);
-    showToast("Speichern fehlgeschlagen. Bitte erneut versuchen.", "error");
+    const message =
+      error?.code === "permission-denied"
+        ? "Firestore-Speichern verweigert. Bitte Sicherheitsregeln prüfen."
+        : "Speichern fehlgeschlagen. Bitte erneut versuchen.";
+    showToast(message, "error");
   }
 }
 
@@ -402,7 +480,11 @@ async function deleteRecipe(recipeId) {
     showView("home");
   } catch (error) {
     console.error("Delete recipe error:", error);
-    showToast("Löschen fehlgeschlagen.", "error");
+    const message =
+      error?.code === "permission-denied"
+        ? "Firestore-Löschen verweigert. Bitte Sicherheitsregeln prüfen."
+        : "Löschen fehlgeschlagen.";
+    showToast(message, "error");
   }
 }
 
