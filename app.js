@@ -276,7 +276,7 @@ function renderHomeCards() {
               <span class="rounded-full bg-amber-100 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-amber-700">${recipe.servings || 1} Port.</span>
             </div>
             <div class="flex items-center gap-2 text-xs text-slate-500">
-              <span class="rounded-full bg-slate-100 px-2 py-1">⏱ ${recipe.totalTimeMinutes || recipe.prepTimeMinutes || 0} min</span>
+              <span class="rounded-full bg-slate-100 px-2 py-1">⏱ ${formatDuration(recipe)}</span>
               <span class="rounded-full bg-emerald-100 px-2 py-1 text-emerald-700">${recipe.ingredients?.length || 0} Zutaten</span>
             </div>
             <div class="flex flex-wrap gap-2">
@@ -307,7 +307,7 @@ function renderSearchCards() {
             <img src="${recipe.imageUrl || defaultRecipeImage()}" alt="${escapeHtml(recipe.title)}" class="h-20 w-20 rounded-xl object-cover" />
             <div class="min-w-0 flex-1">
               <h3 class="truncate text-base font-bold text-slate-900">${escapeHtml(recipe.title)}</h3>
-              <p class="mt-1 text-xs text-slate-500">${recipe.totalTimeMinutes || recipe.prepTimeMinutes || 0} min • ${recipe.servings || 1} Portionen</p>
+              <p class="mt-1 text-xs text-slate-500">${formatDuration(recipe)} • ${recipe.servings || 1} Portionen</p>
               <div class="mt-2 flex flex-wrap gap-1">
                 ${(recipe.tags || []).slice(0, 2).map((tag) => `<span class="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] text-slate-600">${escapeHtml(tag)}</span>`).join("")}
               </div>
@@ -358,8 +358,8 @@ function openForm(recipeId = null) {
     const recipe = state.recipes.find((item) => item.id === recipeId);
     if (!recipe) return;
     refs.recipeTitle.value = recipe.title || "";
-    refs.prepTime.value = recipe.prepTimeMinutes || 0;
-    refs.totalTime.value = recipe.totalTimeMinutes || 0;
+    refs.prepTime.value = recipe.prepTimeMinutes ?? "";
+    refs.totalTime.value = recipe.totalTimeMinutes ?? "";
     refs.servings.value = recipe.servings || 1;
     refs.recipeInstructions.value = recipe.instructions || "";
     refs.recipeImageUrl.value = recipe.imageUrl || "";
@@ -434,22 +434,27 @@ async function handleRecipeSubmit(event) {
 
   const recipeData = {
     title,
-    prepTimeMinutes: Number(refs.prepTime.value) || 0,
-    totalTimeMinutes: Number(refs.totalTime.value) || 0,
     servings: Number(refs.servings.value) || 1,
     ingredients: ingredientRows,
     instructions,
     imageUrl,
     tags,
-    createdAt: state.editingRecipeId ? undefined : serverTimestamp(),
   };
+
+  const prepTime = optionalNumber(refs.prepTime.value);
+  const totalTime = optionalNumber(refs.totalTime.value);
+  if (prepTime !== null) recipeData.prepTimeMinutes = prepTime;
+  if (totalTime !== null) recipeData.totalTimeMinutes = totalTime;
 
   try {
     if (state.editingRecipeId) {
       await updateDoc(doc(db, "recipes", state.editingRecipeId), recipeData);
       showToast("Rezept aktualisiert.", "success");
     } else {
-      await addDoc(collection(db, "recipes"), recipeData);
+      await addDoc(collection(db, "recipes"), {
+        ...recipeData,
+        createdAt: serverTimestamp(),
+      });
       showToast("Rezept gespeichert.", "success");
     }
     state.editingRecipeId = null;
@@ -464,6 +469,14 @@ async function handleRecipeSubmit(event) {
         : "Speichern fehlgeschlagen. Bitte erneut versuchen.";
     showToast(message, "error");
   }
+}
+
+function optionalNumber(value) {
+  const trimmedValue = String(value ?? "").trim();
+  if (!trimmedValue) return null;
+
+  const number = Number(trimmedValue);
+  return Number.isFinite(number) && number >= 0 ? number : null;
 }
 
 async function deleteRecipe(recipeId) {
@@ -536,6 +549,7 @@ function openRecipeDetail(recipeId) {
   state.selectedRecipeId = recipeId;
   const recipe = state.recipes.find((item) => item.id === recipeId);
   if (!recipe) return;
+  state.detailPortions = Number(recipe.servings) || 1;
   renderDetail(recipe);
   showView("detail");
 }
@@ -543,8 +557,7 @@ function openRecipeDetail(recipeId) {
 function renderDetail(recipe) {
   if (!recipe) return;
 
-  state.detailPortions = Number(recipe.servings) || 1;
-  const portions = state.detailPortions;
+  const portions = Number(state.detailPortions) || Number(recipe.servings) || 1;
   const ingredientMarkup = (recipe.ingredients || [])
     .map((ingredient) => {
       const amount = ingredient.amount ? Number(ingredient.amount) : 0;
@@ -584,7 +597,7 @@ function renderDetail(recipe) {
         </div>
 
         <div class="flex flex-wrap gap-2">
-          <span class="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-medium text-amber-700">⏱ ${recipe.totalTimeMinutes || recipe.prepTimeMinutes || 0} min</span>
+          <span class="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-medium text-amber-700">⏱ ${formatDuration(recipe)}</span>
           <span class="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-medium text-emerald-700">${recipe.servings || 1} Portionen</span>
           ${(recipe.tags || []).map((tag) => `<span class="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600">${escapeHtml(tag)}</span>`).join("")}
         </div>
@@ -630,6 +643,11 @@ function registerServiceWorker() {
       });
     });
   }
+}
+
+function formatDuration(recipe) {
+  const duration = recipe.totalTimeMinutes ?? recipe.prepTimeMinutes;
+  return duration === null || duration === undefined || duration === "" ? "Keine Zeit" : `${duration} min`;
 }
 
 function defaultRecipeImage() {
