@@ -10,6 +10,7 @@ import {
   serverTimestamp,
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { db, IMGBB_API_KEY } from "./firebase-config.js";
+import { createCookbookPdf, saveRecipesXml } from "./src/cookbook-export.js";
 
 const state = {
   recipes: [],
@@ -33,6 +34,7 @@ document.addEventListener("DOMContentLoaded", () => {
   refs.searchView = document.getElementById("searchView");
   refs.formView = document.getElementById("formView");
   refs.detailView = document.getElementById("detailView");
+  refs.exportView = document.getElementById("exportView");
   refs.homeCards = document.getElementById("homeCards");
   refs.searchCards = document.getElementById("searchCards");
   refs.searchInput = document.getElementById("searchInput");
@@ -76,6 +78,8 @@ function bindEvents() {
   });
 
   document.getElementById("addRecipeButton").addEventListener("click", () => openForm());
+  document.getElementById("exportPdfButton").addEventListener("click", handlePdfExport);
+  document.getElementById("exportXmlButton").addEventListener("click", handleXmlExport);
   document.getElementById("backFromForm").addEventListener("click", () => {
     state.editingRecipeId = null;
     showView("home");
@@ -332,18 +336,79 @@ function showView(viewName) {
         ? "Suche"
         : viewName === "form"
           ? "Rezept"
-          : "Details";
+          : viewName === "more"
+            ? "Mehr"
+            : "Details";
 
   refs.homeView.classList.toggle("hidden", viewName !== "home");
   refs.searchView.classList.toggle("hidden", viewName !== "search");
   refs.formView.classList.toggle("hidden", viewName !== "form");
   refs.detailView.classList.toggle("hidden", viewName !== "detail");
+  refs.exportView.classList.toggle("hidden", viewName !== "more");
 
   document.querySelectorAll(".nav-button").forEach((button) => {
     const isActive = button.dataset.nav === viewName;
     button.classList.toggle("bg-amber-100", isActive);
     button.classList.toggle("text-amber-700", isActive);
   });
+}
+
+async function handlePdfExport() {
+  if (!state.recipes.length) {
+    showToast("Es gibt noch keine Rezepte zum Exportieren.", "error");
+    return;
+  }
+
+  const pdfWindow = window.open("about:blank", "_blank");
+
+  try {
+    const pdfBlob = await createCookbookPdf(state.recipes);
+    const pdfUrl = URL.createObjectURL(pdfBlob);
+
+    if (pdfWindow) {
+      pdfWindow.location.href = pdfUrl;
+      window.setTimeout(() => URL.revokeObjectURL(pdfUrl), 60_000);
+      showToast("Das PDF-Kochbuch wurde geöffnet.", "success");
+      return;
+    }
+
+    const downloadLink = document.createElement("a");
+    downloadLink.href = pdfUrl;
+    downloadLink.download = "mein-kochbuch.pdf";
+    downloadLink.click();
+    window.setTimeout(() => URL.revokeObjectURL(pdfUrl), 60_000);
+    showToast("Der Browser hat das Öffnen blockiert. Das PDF wurde heruntergeladen.", "success");
+  } catch (error) {
+    console.error("PDF export error:", error);
+    pdfWindow?.close();
+    showToast(
+      error?.message?.includes("PDF-Bibliothek")
+        ? "PDF-Bibliothek nicht geladen. Bitte Internetverbindung prüfen und erneut versuchen."
+        : "PDF-Erstellung fehlgeschlagen. Bitte erneut versuchen.",
+      "error"
+    );
+  }
+}
+
+async function handleXmlExport() {
+  if (!state.recipes.length) {
+    showToast("Es gibt noch keine Rezepte zum Exportieren.", "error");
+    return;
+  }
+
+  try {
+    const result = await saveRecipesXml(state.recipes);
+    showToast(
+      result.savedToDirectory
+        ? "kochbuch-export.xml wurde im gewählten Ordner überschrieben."
+        : "XML-Datei wurde heruntergeladen.",
+      "success"
+    );
+  } catch (error) {
+    if (error?.name === "AbortError") return;
+    console.error("XML export error:", error);
+    showToast("XML-Export fehlgeschlagen. Bitte erneut versuchen.", "error");
+  }
 }
 
 function openForm(recipeId = null) {

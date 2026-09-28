@@ -1,8 +1,9 @@
-const CACHE_NAME = 'kochbuch-cache-v2';
+const CACHE_NAME = 'kochbuch-cache-v3';
 const APP_SHELL = [
   './',
   './index.html',
   './app.js',
+  './src/cookbook-export.js',
   './firebase-config.js',
   './manifest.json',
   './icon-512x512.png'
