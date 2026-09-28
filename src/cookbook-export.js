@@ -17,12 +17,17 @@ export async function createCookbookPdf(recipes) {
   const contentBottom = 270;
 
   pdf.setProperties({
-    title: "Mein Kochbuch",
+    title: "Unser Kochbuch",
     subject: "Gesamtexport der Rezepte",
     creator: "Kochbuch-App",
   });
 
   drawCover(pdf, pageWidth, pageHeight, recipes.length, coverIcon);
+  const tocPages = Math.max(1, Math.ceil(recipes.length / 34));
+  for (let page = 0; page < tocPages; page += 1) {
+    pdf.addPage();
+    drawContentsPage(pdf, recipes, page, tocPages, margin, pageWidth);
+  }
 
   if (!recipes.length) {
     pdf.addPage();
@@ -32,7 +37,9 @@ export async function createCookbookPdf(recipes) {
     pdf.text("Noch keine Rezepte", margin, 40);
   }
 
+  const recipeDestinations = [];
   recipes.forEach((recipe, index) => {
+    recipeDestinations.push(pdf.getNumberOfPages() + 1);
     let y = drawRecipePage(pdf, recipe, index, false, margin, pageWidth, recipeImages[index]);
     const addSection = (title) => {
       if (y + 13 > contentBottom) {
@@ -101,6 +108,14 @@ export async function createCookbookPdf(recipes) {
   });
 
   const pageCount = pdf.getNumberOfPages();
+  recipeDestinations.forEach((pageNumber, index) => {
+    const contentsPage = 2 + Math.floor(index / 34);
+    const row = index % 34;
+    const y = 57 + row * 6.35;
+    pdf.setPage(contentsPage);
+    pdf.link(margin, y - 4.6, pageWidth - margin * 2, 5.8, { pageNumber });
+  });
+
   for (let page = 2; page <= pageCount; page += 1) {
     pdf.setPage(page);
     pdf.setDrawColor(223, 226, 219);
@@ -109,11 +124,68 @@ export async function createCookbookPdf(recipes) {
     pdf.setFont("helvetica", "normal");
     pdf.setFontSize(8);
     pdf.setTextColor(112, 121, 115);
-    pdf.text("MEIN KOCHBUCH", margin, 287);
+    pdf.text("UNSER KOCHBUCH", margin, 287);
     pdf.text(`${page} / ${pageCount}`, pageWidth - margin, 287, { align: "right" });
   }
 
   return pdf.output("blob");
+}
+
+function drawContentsPage(pdf, recipes, contentsIndex, contentsCount, margin, pageWidth) {
+  const pageHeight = 297;
+  const firstRecipe = contentsIndex * 34;
+  const listedRecipes = recipes.slice(firstRecipe, firstRecipe + 34);
+
+  pdf.setFillColor(253, 252, 248);
+  pdf.rect(0, 0, pageWidth, pageHeight, "F");
+  pdf.setFont("helvetica", "bold");
+  pdf.setFontSize(8);
+  pdf.setTextColor(174, 112, 54);
+  pdf.text("UNSER KOCHBUCH", margin, 20);
+
+  pdf.setFont("times", "bold");
+  pdf.setFontSize(27);
+  pdf.setTextColor(36, 59, 54);
+  pdf.text(contentsIndex ? "Inhalt - Fortsetzung" : "Inhaltsverzeichnis", margin, 39);
+
+  if (!recipes.length) {
+    pdf.setFont("helvetica", "normal");
+    pdf.setFontSize(10);
+    pdf.setTextColor(105, 116, 108);
+    pdf.text("Noch keine Rezepte vorhanden.", margin, 58);
+  }
+
+  listedRecipes.forEach((recipe, index) => {
+    const absoluteIndex = firstRecipe + index;
+    const y = 57 + index * 6.35;
+    pdf.setFont("helvetica", "bold");
+    pdf.setFontSize(8);
+    pdf.setTextColor(174, 112, 54);
+    pdf.text(String(absoluteIndex + 1).padStart(2, "0"), margin, y);
+
+    pdf.setFont("helvetica", "normal");
+    pdf.setFontSize(9.5);
+    pdf.setTextColor(36, 59, 54);
+    const title = pdf.splitTextToSize(recipe.title || "Ohne Titel", pageWidth - margin * 2 - 22)[0];
+    pdf.text(title, margin + 12, y);
+
+    pdf.setDrawColor(223, 226, 219);
+    pdf.setLineWidth(0.25);
+    pdf.setLineDashPattern([0.8, 1.2], 0);
+    pdf.line(margin + 12, y + 1.7, pageWidth - margin - 13, y + 1.7);
+    pdf.setLineDashPattern([], 0);
+    pdf.setFont("helvetica", "bold");
+    pdf.setFontSize(8);
+    pdf.setTextColor(105, 116, 108);
+    pdf.text(String(absoluteIndex + 1), pageWidth - margin, y, { align: "right" });
+  });
+
+  if (contentsCount > 1) {
+    pdf.setFont("helvetica", "normal");
+    pdf.setFontSize(8);
+    pdf.setTextColor(105, 116, 108);
+    pdf.text(`Inhalt ${contentsIndex + 1} von ${contentsCount}`, pageWidth - margin, 276, { align: "right" });
+  }
 }
 
 function drawCover(pdf, pageWidth, pageHeight, recipeCount, coverIcon) {
@@ -136,7 +208,7 @@ function drawCover(pdf, pageWidth, pageHeight, recipeCount, coverIcon) {
 
   pdf.setFont("times", "bold");
   pdf.setFontSize(36);
-  pdf.text("Mein", 19, 133);
+  pdf.text("Unser", 19, 133);
   pdf.text("Kochbuch", 19, 151);
   pdf.setFont("helvetica", "normal");
   pdf.setFontSize(12);
